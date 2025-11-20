@@ -1,7 +1,20 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 export default function AuthPanel({ onAuth }) {
-  const baseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
+  // Derive backend URL safely for both local dev and hosted preview
+  const baseUrl = useMemo(() => {
+    const env = import.meta.env.VITE_BACKEND_URL
+    if (env && typeof env === 'string') return env.replace(/\/$/, '')
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin
+      // Modal preview hosts encode the port in the subdomain. Swap -3000 to -8000.
+      if (origin.includes('-3000')) return origin.replace('-3000', '-8000')
+      // Fallback: if running locally on 3000, point to localhost:8000
+      if (origin.includes('3000')) return origin.replace('3000', '8000')
+    }
+    return 'http://localhost:8000'
+  }, [])
+
   const [mode, setMode] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -17,10 +30,15 @@ export default function AuthPanel({ onAuth }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, display_name: displayName })
       })
-      if (!res.ok) throw new Error('Sign up failed')
+      if (!res.ok) {
+        let msg = 'Sign up failed'
+        try { const j = await res.json(); if (j?.detail) msg = Array.isArray(j.detail) ? j.detail[0]?.msg || msg : j.detail }
+        catch {}
+        throw new Error(msg)
+      }
       const data = await res.json()
       onAuth(data.access_token)
-    } catch (e) { setError(e.message) } finally { setLoading(false) }
+    } catch (e) { setError(e.message || 'Sign up failed') } finally { setLoading(false) }
   }
 
   const handleLogin = async () => {
@@ -30,10 +48,15 @@ export default function AuthPanel({ onAuth }) {
       form.append('username', email)
       form.append('password', password)
       const res = await fetch(`${baseUrl}/auth/login`, { method: 'POST', body: form })
-      if (!res.ok) throw new Error('Login failed')
+      if (!res.ok) {
+        let msg = 'Login failed'
+        try { const j = await res.json(); if (j?.detail) msg = Array.isArray(j.detail) ? j.detail[0]?.msg || msg : j.detail }
+        catch {}
+        throw new Error(msg)
+      }
       const data = await res.json()
       onAuth(data.access_token)
-    } catch (e) { setError(e.message) } finally { setLoading(false) }
+    } catch (e) { setError(e.message || 'Login failed') } finally { setLoading(false) }
   }
 
   return (
@@ -59,6 +82,7 @@ export default function AuthPanel({ onAuth }) {
               <button onClick={mode==='login' ? handleLogin : handleSignup} disabled={loading} className="w-full px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold disabled:opacity-60">
                 {loading ? 'Please wait...' : mode==='login' ? 'Login' : 'Create Account'}
               </button>
+              <p className="text-xs text-white/50 text-center">Using: {baseUrl}</p>
             </div>
           </div>
         </div>
